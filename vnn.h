@@ -1,6 +1,7 @@
 #ifndef VNN_H
 #define VNN_H
 
+#include <stdio.h>
 #include <assert.h>
 #include <string.h>
 
@@ -43,6 +44,7 @@ VNNDEF Matrix matrix_new(VNN_DTYPE *data, size_t rows, size_t cols);
 VNNDEF void matrix_free(Matrix *dest);
 VNNDEF Matrix matrix_copy(Matrix src);
 VNNDEF Matrix matrix_transpose(Matrix src);
+VNNDEF void matrix_print(Matrix src);
 
 #define MATRIX_AT(src, i, j) (src).data[(i)*(src).cols + (j)]
 
@@ -81,6 +83,32 @@ VNNDEF Matrix matrix_transpose(Matrix src) {
 	}
 
 	return dest;
+}
+
+VNNDEF void matrix_print(Matrix src) {
+	printf("{");
+	for (size_t i = 0; i < src.rows; i++) {
+		printf("{");
+		for (size_t j = 0; j < src.cols; j++) {
+			int longest = 0;
+			for (size_t k = 0; k < src.rows; k++) {
+				int len = snprintf(NULL, 0, "%lg", ((long) (MATRIX_AT(src, k, j) * 1000.0)) / 1000.0);
+				if (len > longest) {
+					longest = len;
+				}
+			}
+
+			printf("%*lg", longest, ((long) (MATRIX_AT(src, i, j) * 1000.0)) / 1000.0);
+			if (j < src.cols-1) {
+				printf(" ");
+			}
+		}
+		printf("}");
+		if (i < src.rows-1) {
+			printf(",\n ");
+		}
+	}
+	printf("}\n");
 }
 
 #endif
