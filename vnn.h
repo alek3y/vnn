@@ -49,8 +49,11 @@ VNNDEF Matrix matrix_zeros(size_t rows, size_t cols);
 VNNDEF Matrix matrix_copy(Matrix src);
 VNNDEF Matrix matrix_from(VNN_DTYPE *data, size_t rows, size_t cols);
 VNNDEF void matrix_free(Matrix *dest);
-VNNDEF Matrix matrix_transpose(Matrix src);	// TODO: Rewrite in-place?
+VNNDEF Matrix matrix_transpose(Matrix src);
+VNNDEF Matrix matrix_add(Matrix a, Matrix b);
 VNNDEF Matrix matrix_multiply(Matrix a, Matrix b);
+VNNDEF void matrix_add_scalar(Matrix dest, VNN_DTYPE scalar);
+VNNDEF void matrix_multiply_scalar(Matrix dest, VNN_DTYPE scalar);
 VNNDEF void matrix_print(Matrix src);
 
 #define MATRIX_AT(src, i, j) (src).data[(i)*(src).cols + (j)]
@@ -103,6 +106,16 @@ VNNDEF Matrix matrix_transpose(Matrix src) {
 	return dest;
 }
 
+VNNDEF Matrix matrix_add(Matrix a, Matrix b) {
+	assert(a.rows == b.rows && a.cols == b.cols);
+
+	Matrix dest = matrix_empty(a.rows, a.cols);
+	for (size_t i = 0; i < a.rows*a.cols; i++) {
+		dest.data[i] = VNN_DTYPE_ADD(a.data[i], b.data[i]);
+	}
+	return dest;
+}
+
 VNNDEF Matrix matrix_multiply(Matrix a, Matrix b) {
 	assert(a.cols == b.rows);
 
@@ -118,6 +131,18 @@ VNNDEF Matrix matrix_multiply(Matrix a, Matrix b) {
 		}
 	}
 	return dest;
+}
+
+VNNDEF void matrix_add_scalar(Matrix dest, VNN_DTYPE scalar) {
+	for (size_t i = 0; i < dest.rows*dest.cols; i++) {
+		dest.data[i] = VNN_DTYPE_ADD(dest.data[i], scalar);
+	}
+}
+
+VNNDEF void matrix_multiply_scalar(Matrix dest, VNN_DTYPE scalar) {
+	for (size_t i = 0; i < dest.rows*dest.cols; i++) {
+		dest.data[i] = VNN_DTYPE_MUL(dest.data[i], scalar);
+	}
 }
 
 VNNDEF void matrix_print(Matrix src) {
