@@ -94,23 +94,19 @@ VNNDEF void matrix_free(Matrix *dest) {
 }
 
 VNNDEF Matrix matrix_transpose(Matrix src) {
-	Matrix dest = matrix_copy(src);
-	dest.rows = src.cols;
-	dest.cols = src.rows;
-
+	Matrix dest = matrix_empty(src.cols, src.rows);
 	for (size_t i = 0; i < src.rows; i++) {
 		for (size_t j = 0; j < src.cols; j++) {
 			MATRIX_AT(dest, j, i) = MATRIX_AT(src, i, j);
 		}
 	}
-
 	return dest;
 }
 
 VNNDEF Matrix matrix_multiply(Matrix a, Matrix b) {
 	assert(a.cols == b.rows);
 
-	Matrix dest = matrix_zeros(a.rows, b.cols);
+	Matrix dest = matrix_empty(a.rows, b.cols);
 	for (size_t i = 0; i < a.rows; i++) {
 		for (size_t j = 0; j < b.cols; j++) {
 			VNN_DTYPE sum = VNN_DTYPE_ZERO;
