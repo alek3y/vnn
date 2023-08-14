@@ -63,6 +63,9 @@ typedef struct {
 	size_t layers;
 } Network;
 
+VNNDEF Network network_new(size_t *layers, size_t layers_len);
+VNNDEF void network_free(Network *dest);
+
 VNNDEF Matrix matrix_empty(size_t rows, size_t cols) {
 	return (Matrix) {
 		.data = VNN_MALLOC(rows*cols * sizeof(VNN_DTYPE)),
@@ -163,12 +166,43 @@ VNNDEF void matrix_print(Matrix src) {
 				printf(" ");
 			}
 		}
+
 		printf("}");
 		if (i < src.rows-1) {
 			printf(",\n ");
 		}
 	}
 	printf("}\n");
+}
+
+VNNDEF Network network_new(size_t *layers, size_t layers_len) {
+	Network dest = {
+		.weights = VNN_MALLOC((layers_len-1) * sizeof(Matrix)),
+		.layers = layers_len
+	};
+
+	for (size_t i = 1; i < layers_len; i++) {
+
+		// Matrices are shaped $(n+1) \times k$ where $n$ is the number of the previous layer units,
+		// extended to include the biases and $k$ is the number of the next layer units.
+		// Each weight $w_{ij}$ at the $i$-th row and $j$-th column is the connection between the $i$-th
+		// unit of the previous layer and the $j$-th unit of the next one (see Section 7.3.1, p. 165)
+		dest.weights[i-1] = matrix_empty(layers[i-1]+1, layers[i]);	// TODO: Randomize matrix
+	}
+
+	return dest;
+}
+
+VNNDEF void network_free(Network *dest) {
+	assert(dest->weights != NULL && dest->layers > 0);
+
+	for (size_t i = 0; i < dest->layers-1; i++) {
+		matrix_free(&dest->weights[i]);
+	}
+
+	VNN_FREE(dest->weights);
+	dest->weights = NULL;
+	dest->layers = 0;
 }
 
 #endif
