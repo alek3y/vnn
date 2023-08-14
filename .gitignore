@@ -1,6 +1,8 @@
 /TODO.md
 /*.pdf
 /*.py
+
 /examples/*
 !/examples/*.c
 !/examples/*.h
+!/examples/Makefile
