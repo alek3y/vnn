@@ -12,6 +12,8 @@
 #define VNN_FREE free
 #endif
 
+#define VNN_CALLOC(s) (memset(VNN_MALLOC(s), 0, (s)))
+
 #ifndef VNN_DTYPE
 #define VNN_DTYPE float
 #endif
@@ -50,6 +52,7 @@ VNNDEF Matrix matrix_rand(size_t rows, size_t cols, VNN_DTYPE (*rand)());
 VNNDEF Matrix matrix_copy(Matrix src);
 VNNDEF Matrix matrix_from(VNN_DTYPE *data, size_t rows, size_t cols);
 VNNDEF void matrix_free(Matrix *dest);
+VNNDEF void matrix_apply(Matrix dest, VNN_DTYPE (*func)(VNN_DTYPE));
 VNNDEF Matrix matrix_transpose(Matrix src);
 VNNDEF Matrix matrix_add(Matrix a, Matrix b);
 VNNDEF Matrix matrix_multiply(Matrix a, Matrix b);
@@ -58,16 +61,30 @@ VNNDEF void matrix_multiply_scalar(Matrix dest, VNN_DTYPE scalar);
 VNNDEF void matrix_print(Matrix src);
 
 #define MATRIX_AT(src, i, j) (src).data[(i)*(src).cols + (j)]
+#define MATRIX_FREED(src) ((src).data == NULL)
 
 typedef struct {
-	Matrix *weights;
 	size_t layers;
+	VNN_DTYPE rate, (**s)(VNN_DTYPE), (**ds)(VNN_DTYPE);
+	Matrix *weights;
+
+	// Epoch relative data
+	Matrix *diags, *outputs;
 } Network;
 
-VNNDEF Network network_new(size_t *units, size_t layers, VNN_DTYPE (*rand)());
+VNNDEF Network network_new(
+	size_t *shape, size_t layers, VNN_DTYPE rate,
+	VNN_DTYPE (**activations)(VNN_DTYPE),
+	VNN_DTYPE (**derivatives)(VNN_DTYPE),
+	VNN_DTYPE (*rand)()
+);
 VNNDEF void network_free(Network *dest);
 
+#define NETWORK_FREED(src) ((src).layers == 0)
+
 VNNDEF Matrix matrix_empty(size_t rows, size_t cols) {
+	assert(rows > 0 && cols > 0);
+
 	return (Matrix) {
 		.data = VNN_MALLOC(rows*cols * sizeof(VNN_DTYPE)),
 		.rows = rows,
@@ -84,6 +101,7 @@ VNNDEF Matrix matrix_zeros(size_t rows, size_t cols) {
 }
 
 VNNDEF Matrix matrix_rand(size_t rows, size_t cols, VNN_DTYPE (*rand)()) {
+	assert(rand != NULL);
 	Matrix dest = matrix_empty(rows, cols);
 	for (size_t i = 0; i < rows*cols; i++) {
 		dest.data[i] = rand();
@@ -98,14 +116,22 @@ VNNDEF Matrix matrix_copy(Matrix src) {
 }
 
 VNNDEF Matrix matrix_from(VNN_DTYPE *data, size_t rows, size_t cols) {
+	assert(data != NULL);
 	Matrix dest = {.data = data, .rows = rows, .cols = cols};
 	return matrix_copy(dest);
 }
 
 VNNDEF void matrix_free(Matrix *dest) {
-	assert(dest->data != NULL);
+	assert(!MATRIX_FREED(*dest));
 	VNN_FREE(dest->data);
-	dest->data = NULL;
+	memset(dest, 0, sizeof(Matrix));
+}
+
+VNNDEF void matrix_apply(Matrix dest, VNN_DTYPE (*func)(VNN_DTYPE)) {
+	assert(!MATRIX_FREED(dest) && func != NULL);
+	for (size_t i = 0; i < dest.rows*dest.cols; i++) {
+		dest.data[i] = func(dest.data[i]);
+	}
 }
 
 VNNDEF Matrix matrix_transpose(Matrix src) {
@@ -146,12 +172,14 @@ VNNDEF Matrix matrix_multiply(Matrix a, Matrix b) {
 }
 
 VNNDEF void matrix_add_scalar(Matrix dest, VNN_DTYPE scalar) {
+	assert(!MATRIX_FREED(dest));
 	for (size_t i = 0; i < dest.rows*dest.cols; i++) {
 		dest.data[i] = VNN_DTYPE_ADD(dest.data[i], scalar);
 	}
 }
 
 VNNDEF void matrix_multiply_scalar(Matrix dest, VNN_DTYPE scalar) {
+	assert(!MATRIX_FREED(dest));
 	for (size_t i = 0; i < dest.rows*dest.cols; i++) {
 		dest.data[i] = VNN_DTYPE_MUL(dest.data[i], scalar);
 	}
@@ -184,36 +212,59 @@ VNNDEF void matrix_print(Matrix src) {
 	printf("}\n");
 }
 
-VNNDEF Network network_new(size_t *units, size_t layers, VNN_DTYPE (*rand)()) {
-	assert(layers >= 2);	// At least input and output layers
+VNNDEF Network network_new(
+	size_t *shape, size_t layers, VNN_DTYPE rate,
+	VNN_DTYPE (**activations)(VNN_DTYPE),
+	VNN_DTYPE (**derivatives)(VNN_DTYPE),
+	VNN_DTYPE (*rand)()
+) {
+	assert(shape != NULL && shape[0] > 0 && layers >= 2);
+	assert(activations != NULL && derivatives != NULL && rand != NULL);
 
 	Network dest = {
+		.layers = layers, .rate = rate,
+		.s = activations, .ds = derivatives,
 		.weights = VNN_MALLOC((layers-1) * sizeof(Matrix)),
-		.layers = layers
+
+		.diags = VNN_CALLOC((layers-1) * sizeof(Matrix)),	// At `diags[0]` are the diagonalized derivatives of the 2nd layer
+		.outputs = VNN_CALLOC(layers * sizeof(Matrix))
 	};
 
-	for (size_t i = 1; i < layers; i++) {
+	for (size_t i = 0; i < layers; i++) {
+		assert(activations[i] != NULL && derivatives[i] != NULL);
 
 		// Matrices are shaped $(n+1) \times k$ where $n$ is the number of the previous layer units,
 		// extended to include the biases and $k$ is the number of the next layer units.
 		// Each weight $w_{ij}$ at the $i$-th row and $j$-th column is the connection between the $i$-th
 		// unit of the previous layer and the $j$-th unit of the next one (see Section 7.3.1, p. 165)
-		dest.weights[i-1] = matrix_rand(units[i-1]+1, units[i], rand);
+		dest.weights[i] = matrix_rand(shape[i]+1, shape[i+1], rand);
 	}
 
 	return dest;
 }
 
 VNNDEF void network_free(Network *dest) {
-	assert(dest->weights != NULL && dest->layers > 0);
+	assert(!NETWORK_FREED(*dest));
 
-	for (size_t i = 0; i < dest->layers-1; i++) {
-		matrix_free(&dest->weights[i]);
+	if (!MATRIX_FREED(dest->outputs[0])) {
+		matrix_free(&dest->outputs[0]);
+	}
+
+	for (size_t i = 1; i < dest->layers; i++) {
+		matrix_free(&dest->weights[i-1]);
+
+		if (!MATRIX_FREED(dest->diags[i-1])) {
+			matrix_free(&dest->diags[i-1]);
+		}
+		if (!MATRIX_FREED(dest->outputs[i])) {
+			matrix_free(&dest->outputs[i]);
+		}
 	}
 
 	VNN_FREE(dest->weights);
-	dest->weights = NULL;
-	dest->layers = 0;
+	VNN_FREE(dest->diags);
+	VNN_FREE(dest->outputs);
+	memset(dest, 0, sizeof(Network));
 }
 
 #endif
