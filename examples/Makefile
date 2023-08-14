@@ -11,7 +11,7 @@ BIN = $(patsubst %.c, %, $(SRC))
 all: $(BIN) $(LIB)
 
 run: all
-	$(foreach bin,$(BIN),./$(bin))
+	@$(foreach bin,$(BIN),echo "=== ./$(bin) ==="; ./$(bin);)
 
 %: %.c $(LIB)
 	$(CC) $(CFLAGS) -I $(shell dirname $(LIB)) $< -o $@
