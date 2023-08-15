@@ -18,16 +18,26 @@ float derivative(float excitation) {
 
 int main(void) {
 	srand(time(NULL));
-	Network n = network_new(
+	Network nn = network_new(
 		(size_t[]) {2, 3, 2}, 3, 1,
 		(VNN_DTYPE (*[])(VNN_DTYPE)) {activation, activation},
 		(VNN_DTYPE (*[])(VNN_DTYPE)) {derivative, derivative},
 		randw
 	);
-	for (size_t i = 0; i < n.layers-1; i++) {
-		matrix_multiply_scalar(n.weights[i], 0);
-		matrix_add_scalar(n.weights[i], 1);
-		matrix_print(n.weights[i]);
+
+	printf("Weights:\n");
+	for (size_t i = 0; i < nn.layers-1; i++) {
+		matrix_multiply_scalar(nn.weights[i], 0);
+		matrix_add_scalar(nn.weights[i], 1);
+		matrix_print(nn.weights[i]);
 	}
-	network_free(&n);
+
+	Matrix target = matrix_from((float[]) {1, 0}, 1, 2);
+	printf("Target:\n");
+	matrix_print(target);
+
+	printf("Error: %g\n", network_error(nn, target));
+
+	matrix_free(&target);
+	network_free(&nn);
 }

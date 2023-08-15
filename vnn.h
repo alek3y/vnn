@@ -17,6 +17,9 @@
 #ifndef VNN_DTYPE
 #define VNN_DTYPE float
 #endif
+#ifndef VNN_DTYPE_ONE
+#define VNN_DTYPE_ONE 1.0
+#endif
 #ifndef VNN_DTYPE_ADD
 #define VNN_DTYPE_ADD(a, b) ((a) + (b))
 #endif
@@ -33,7 +36,7 @@
 #endif
 
 #define VNN_DTYPE_SUB(a, b) VNN_DTYPE_ADD((a), VNN_DTYPE_NEG(b))
-#define VNN_DTYPE_ZERO VNN_DTYPE_SUB((VNN_DTYPE) {0}, (VNN_DTYPE) {0})
+#define VNN_DTYPE_ZERO VNN_DTYPE_SUB(VNN_DTYPE_ONE, VNN_DTYPE_ONE)
 
 #ifdef VNN_EXTERN
 #define VNNDEF extern
@@ -58,6 +61,7 @@ VNNDEF Matrix matrix_add(Matrix a, Matrix b);
 VNNDEF Matrix matrix_multiply(Matrix a, Matrix b);
 VNNDEF void matrix_add_scalar(Matrix dest, VNN_DTYPE scalar);
 VNNDEF void matrix_multiply_scalar(Matrix dest, VNN_DTYPE scalar);
+VNNDEF void matrix_negate(Matrix dest);
 VNNDEF void matrix_print(Matrix src);
 
 #define MATRIX_AT(src, i, j) (src).data[(i)*(src).cols + (j)]
@@ -79,6 +83,7 @@ VNNDEF Network network_new(
 	VNN_DTYPE (*rand)()
 );
 VNNDEF void network_free(Network *dest);
+VNNDEF VNN_DTYPE network_error(Network src, Matrix target);
 
 #define NETWORK_FREED(src) ((src).layers == 0)
 
@@ -185,6 +190,13 @@ VNNDEF void matrix_multiply_scalar(Matrix dest, VNN_DTYPE scalar) {
 	}
 }
 
+VNNDEF void matrix_negate(Matrix dest) {
+	assert(!MATRIX_FREED(dest));
+	for (size_t i = 0; i < dest.rows*dest.cols; i++) {
+		dest.data[i] = VNN_DTYPE_NEG(dest.data[i]);
+	}
+}
+
 VNNDEF void matrix_print(Matrix src) {
 	printf("{");
 	for (size_t i = 0; i < src.rows; i++) {
@@ -230,7 +242,7 @@ VNNDEF Network network_new(
 		.outputs = VNN_CALLOC(layers * sizeof(Matrix))
 	};
 
-	for (size_t i = 0; i < layers; i++) {
+	for (size_t i = 0; i < layers-1; i++) {
 		assert(activations[i] != NULL && derivatives[i] != NULL);
 
 		// Matrices are shaped $(n+1) \times k$ where $n$ is the number of the previous layer units,
@@ -241,6 +253,24 @@ VNNDEF Network network_new(
 	}
 
 	return dest;
+}
+
+VNNDEF VNN_DTYPE network_error(Network src, Matrix target) {
+	assert(!NETWORK_FREED(src) && !MATRIX_FREED(src.diags[0]));
+
+	matrix_negate(target);
+	Matrix diff = matrix_add(src.outputs[src.layers-1], target);
+	matrix_negate(target);
+
+	VNN_DTYPE squares = VNN_DTYPE_ZERO;	// Stores the norm of `diff` squared
+	for (size_t i = 0; i < diff.rows*diff.cols; i++) {
+		squares = VNN_DTYPE_ADD(squares, VNN_DTYPE_MUL(diff.data[i], diff.data[i]));
+	}
+
+	VNN_DTYPE error = VNN_DTYPE_DIV(squares, VNN_DTYPE_ADD(VNN_DTYPE_ONE, VNN_DTYPE_ONE));	// Derivative cancels 2 out
+
+	matrix_free(&diff);
+	return error;	// Mean squared error (see Section 7.2.1, p. 156)
 }
 
 VNNDEF void network_free(Network *dest) {
