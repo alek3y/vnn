@@ -258,19 +258,25 @@ VNNDEF Network network_new(
 VNNDEF VNN_DTYPE network_error(Network src, Matrix target) {
 	assert(!NETWORK_FREED(src) && !MATRIX_FREED(src.diags[0]));
 
-	matrix_negate(target);
-	Matrix diff = matrix_add(src.outputs[src.layers-1], target);
-	matrix_negate(target);
+	Matrix output = src.outputs[src.layers-1];
+	output.cols--;
 
-	VNN_DTYPE squares = VNN_DTYPE_ZERO;	// Stores the norm of `diff` squared
+	// On-line (see Section 7.3.2, p. 170) evaluation of the Mean Squared Error as
+	// $\frac{1}{2}\|o_i - t_i\|^2$ (see Section 7.2.1, p. 156) for the $i$-th dataset sample
+	matrix_negate(target);
+	Matrix diff = matrix_add(output, target);
+	matrix_negate(target);	// Better not have `target` changing every epoch :)
+	VNN_DTYPE squares = VNN_DTYPE_ZERO;
 	for (size_t i = 0; i < diff.rows*diff.cols; i++) {
 		squares = VNN_DTYPE_ADD(squares, VNN_DTYPE_MUL(diff.data[i], diff.data[i]));
 	}
-
-	VNN_DTYPE error = VNN_DTYPE_DIV(squares, VNN_DTYPE_ADD(VNN_DTYPE_ONE, VNN_DTYPE_ONE));	// Derivative cancels 2 out
+	VNN_DTYPE error = VNN_DTYPE_DIV(
+		squares,	// Stores the norm of `diff` squared
+		VNN_DTYPE_ADD(VNN_DTYPE_ONE, VNN_DTYPE_ONE)	// Derivative cancels 2 out
+	);
 
 	matrix_free(&diff);
-	return error;	// Mean squared error (see Section 7.2.1, p. 156)
+	return error;
 }
 
 VNNDEF void network_free(Network *dest) {
