@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -std=c99 -pedantic -Wall -Wshadow -Wextra
+CFLAGS = -std=c99 -g -pedantic -Wall -Wshadow -Wextra
 CFLAGS += -Wno-unused-function
 LDFLAGS = -lm
 

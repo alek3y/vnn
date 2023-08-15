@@ -32,12 +32,21 @@ int main(void) {
 		matrix_print(nn.weights[i]);
 	}
 
+	Matrix input = matrix_from((float[]) {1, 2}, 1, 2);
+	printf("Input:\n");
+	matrix_print(input);
+
 	Matrix target = matrix_from((float[]) {1, 0}, 1, 2);
 	printf("Target:\n");
 	matrix_print(target);
 
+	Matrix output = network_feed(nn, input);
+	printf("Output:\n");
+	matrix_print(output);
+
 	printf("Error: %g\n", network_error(nn, target));
 
 	matrix_free(&target);
+	matrix_free(&input);
 	network_free(&nn);
 }

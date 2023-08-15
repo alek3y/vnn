@@ -54,8 +54,9 @@ VNNDEF Matrix matrix_zeros(size_t rows, size_t cols);
 VNNDEF Matrix matrix_rand(size_t rows, size_t cols, VNN_DTYPE (*rand)());
 VNNDEF Matrix matrix_copy(Matrix src);
 VNNDEF Matrix matrix_from(VNN_DTYPE *data, size_t rows, size_t cols);
-VNNDEF void matrix_free(Matrix *dest);
+VNNDEF Matrix matrix_diagonalize(Matrix src);
 VNNDEF void matrix_apply(Matrix dest, VNN_DTYPE (*func)(VNN_DTYPE));
+VNNDEF Matrix matrix_resize(Matrix src, size_t rows, size_t cols, VNN_DTYPE extend);
 VNNDEF Matrix matrix_transpose(Matrix src);
 VNNDEF Matrix matrix_add(Matrix a, Matrix b);
 VNNDEF Matrix matrix_multiply(Matrix a, Matrix b);
@@ -63,6 +64,7 @@ VNNDEF void matrix_add_scalar(Matrix dest, VNN_DTYPE scalar);
 VNNDEF void matrix_multiply_scalar(Matrix dest, VNN_DTYPE scalar);
 VNNDEF void matrix_negate(Matrix dest);
 VNNDEF void matrix_print(Matrix src);
+VNNDEF void matrix_free(Matrix *dest);
 
 #define MATRIX_AT(src, i, j) (src).data[(i)*(src).cols + (j)]
 #define MATRIX_FREED(src) ((src).data == NULL)
@@ -82,8 +84,9 @@ VNNDEF Network network_new(
 	VNN_DTYPE (**derivatives)(VNN_DTYPE),
 	VNN_DTYPE (*rand)()
 );
-VNNDEF void network_free(Network *dest);
+VNNDEF Matrix network_feed(Network dest, Matrix input);
 VNNDEF VNN_DTYPE network_error(Network src, Matrix target);
+VNNDEF void network_free(Network *dest);
 
 #define NETWORK_FREED(src) ((src).layers == 0)
 
@@ -126,6 +129,14 @@ VNNDEF Matrix matrix_from(VNN_DTYPE *data, size_t rows, size_t cols) {
 	return matrix_copy(dest);
 }
 
+VNNDEF Matrix matrix_diagonalize(Matrix src) {
+	Matrix dest = matrix_zeros(src.rows*src.cols, src.rows*src.cols);
+	for (size_t i = 0; i < src.rows*src.cols; i++) {
+		MATRIX_AT(dest, i, i) = src.data[i];
+	}
+	return dest;
+}
+
 VNNDEF void matrix_free(Matrix *dest) {
 	assert(!MATRIX_FREED(*dest));
 	VNN_FREE(dest->data);
@@ -137,6 +148,18 @@ VNNDEF void matrix_apply(Matrix dest, VNN_DTYPE (*func)(VNN_DTYPE)) {
 	for (size_t i = 0; i < dest.rows*dest.cols; i++) {
 		dest.data[i] = func(dest.data[i]);
 	}
+}
+
+VNNDEF Matrix matrix_resize(Matrix src, size_t rows, size_t cols, VNN_DTYPE extend) {
+	assert(!MATRIX_FREED(src));
+
+	Matrix dest = matrix_empty(rows, cols);
+	size_t min = rows*cols < src.rows*src.cols ? rows*cols : src.rows*src.cols;
+	memcpy(dest.data, src.data, min * sizeof(VNN_DTYPE));
+	for (size_t i = min; i < rows*cols; i++) {
+		dest.data[i] = extend;
+	}
+	return dest;
 }
 
 VNNDEF Matrix matrix_transpose(Matrix src) {
@@ -204,13 +227,13 @@ VNNDEF void matrix_print(Matrix src) {
 		for (size_t j = 0; j < src.cols; j++) {
 			int longest = 0;
 			for (size_t k = 0; k < src.rows; k++) {
-				int len = snprintf(NULL, 0, "%lg", ((long) (MATRIX_AT(src, k, j) * 1000.0)) / 1000.0);
+				int len = snprintf(NULL, 0, "%lg", MATRIX_AT(src, k, j));
 				if (len > longest) {
 					longest = len;
 				}
 			}
 
-			printf("%*lg", longest, ((long) (MATRIX_AT(src, i, j) * 1000.0)) / 1000.0);
+			printf("%*lg", longest, MATRIX_AT(src, i, j));
 			if (j < src.cols-1) {
 				printf(" ");
 			}
@@ -253,6 +276,48 @@ VNNDEF Network network_new(
 	}
 
 	return dest;
+}
+
+VNNDEF Matrix network_feed(Network dest, Matrix input) {
+	assert(!NETWORK_FREED(dest));
+	assert(input.rows == 1 && input.cols == dest.weights[0].rows-1);
+
+	if (!MATRIX_FREED(dest.outputs[0])) {
+		matrix_free(&dest.outputs[0]);
+	}
+	dest.outputs[0] = matrix_resize(input, input.rows, input.cols+1, VNN_DTYPE_ONE);	// Extend input with bias
+
+	for (size_t i = 1; i < dest.layers; i++) {
+		if (!MATRIX_FREED(dest.outputs[i])) {
+			matrix_free(&dest.outputs[i]);
+		}
+		if (!MATRIX_FREED(dest.diags[i-1])) {
+			matrix_free(&dest.diags[i-1]);
+		}
+
+		// Computes the excitation, i.e. weighted sum, of the inputs
+		// (see Section 6.1.1, p. 125 and Section 7.3.1, p. 165)
+		Matrix excitations = matrix_multiply(dest.outputs[i-1], dest.weights[i-1]);
+
+		// Unit is considered active when its activation, given by the function $s(x)$ where $x$ is the
+		// excitation, is greater than a given threshold, i.e. the bias (see Figure 3.5, p. 61)
+		Matrix activated = matrix_resize(excitations, excitations.rows, excitations.cols+1, VNN_DTYPE_ONE);
+		matrix_apply(activated, dest.s[i-1]);
+		MATRIX_AT(activated, 0, activated.cols-1) = VNN_DTYPE_ONE;	// NOTE: Technically the bias input doesn't have to be 1; TODO: Actually try to remove this line
+		dest.outputs[i] = activated;
+
+		// Diagonalized derivatives are stored during the feed forward step so that
+		// we don't have to recompute the excitations (see Section 7.2.2, p. 157)
+		matrix_apply(excitations, dest.ds[i-1]);	// No need to clone since we don't need `excitations` anymore
+		dest.diags[i-1] = matrix_diagonalize(excitations);
+
+		matrix_free(&excitations);
+	}
+
+	// TODO: Mention return value is a peek and you don't need to free!
+	Matrix output = dest.outputs[dest.layers-1];
+	output.cols--;
+	return output;
 }
 
 VNNDEF VNN_DTYPE network_error(Network src, Matrix target) {
