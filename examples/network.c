@@ -46,6 +46,16 @@ int main(void) {
 
 	printf("Error: %g\n", network_error(nn, target));
 
+	network_adjust(nn, target);
+	printf("Deltas:\n");
+	for (size_t i = 0; i < nn.layers-1; i++) {
+		matrix_print(nn.deltas[i]);
+	}
+	printf("Weights:\n");
+	for (size_t i = 0; i < nn.layers-1; i++) {
+		matrix_print(nn.weights[i]);
+	}
+
 	matrix_free(&target);
 	matrix_free(&input);
 	network_free(&nn);

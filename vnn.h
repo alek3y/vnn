@@ -80,7 +80,7 @@ typedef struct {
 	Matrix *weights;
 
 	// Epoch relative data
-	Matrix *diags, *outputs;
+	Matrix *deltas, *diags, *outputs;
 } Network;
 
 VNNDEF Network network_new(
@@ -91,6 +91,7 @@ VNNDEF Network network_new(
 );
 VNNDEF Matrix network_feed(Network dest, Matrix input);
 VNNDEF VNN_DTYPE network_error(Network src, Matrix target);
+VNNDEF void network_adjust(Network dest, Matrix target);
 VNNDEF void network_free(Network *dest);
 
 #define NETWORK_FREED(src) ((src).layers == 0)
@@ -266,13 +267,15 @@ VNNDEF Network network_new(
 	assert(shape != NULL && shape[0] > 0 && layers >= 2);
 	assert(activations != NULL && derivatives != NULL && rand != NULL);
 
+	size_t betweens = (layers-1) * sizeof(Matrix);
 	Network dest = {
 		.layers = layers, .rate = rate,
 		.s = activations, .ds = derivatives,
-		.weights = VNN_MALLOC((layers-1) * sizeof(Matrix)),
+		.weights = VNN_MALLOC(betweens),
 
-		.diags = VNN_CALLOC((layers-1) * sizeof(Matrix)),	// At `diags[0]` are the diagonalized derivatives of the 2nd layer
-		.outputs = VNN_CALLOC(layers * sizeof(Matrix))
+		.deltas = VNN_CALLOC(betweens),
+		.diags = VNN_CALLOC(betweens),	// At `diags[0]` are the diagonalized derivatives of the 2nd layer
+		.outputs = VNN_CALLOC(1*sizeof(Matrix) + betweens)	// At `outputs[0]` is the extended input vector
 	};
 
 	for (size_t i = 0; i < layers-1; i++) {
@@ -341,10 +344,12 @@ VNNDEF VNN_DTYPE network_error(Network src, Matrix target) {
 	matrix_negate(target);
 	Matrix diff = matrix_add(output, target);
 	matrix_negate(target);	// Better not have `target` changing every epoch :)
+
 	VNN_DTYPE squares = VNN_DTYPE_ZERO;
 	for (size_t i = 0; i < diff.rows*diff.cols; i++) {
 		squares = VNN_DTYPE_ADD(squares, VNN_DTYPE_MUL(diff.data[i], diff.data[i]));
 	}
+
 	VNN_DTYPE error = VNN_DTYPE_DIV(
 		squares,	// Stores the norm of `diff` squared
 		VNN_DTYPE_ADD(VNN_DTYPE_ONE, VNN_DTYPE_ONE)	// Derivative cancels 2 out
@@ -352,6 +357,73 @@ VNNDEF VNN_DTYPE network_error(Network src, Matrix target) {
 
 	matrix_free(&diff);
 	return error;
+}
+
+VNNDEF void network_adjust(Network dest, Matrix target) {
+	assert(!NETWORK_FREED(dest) && !MATRIX_FREED(dest.diags[0]));
+	assert(target.rows == 1 && target.cols == dest.weights[dest.layers-2].cols);
+
+	// NOTE:
+	// Grasping the results of the operations might be easier by commenting on each line the inputs
+	// and output shape, e.g. `delta` on the first iteration would be "2x1 . 1x4 = 2x4" for a network
+	// of shape `{2, 3, 2}` since `to_units_derivative` is "(1x2 . 2x2)T = 1x2T = 2x1", where "1x2"
+	// is the `to_error_derivative` and "2x2" is the last diagonalized derivative
+
+	Matrix output = dest.outputs[dest.layers-1];
+	output.cols--;
+
+	// Derivative of the Mean Squared Error (see Section 7.3.3, p. 171)
+	matrix_negate(target);
+	Matrix to_error_derivative = matrix_add(output, target);
+	matrix_negate(target);
+
+	// Derivative up to the network outputs (see Section 7.3.3, p. 171)
+	Matrix to_units_derivative = matrix_multiply(to_error_derivative, dest.diags[dest.layers-2]);
+	matrix_transpose(&to_units_derivative);
+	for (size_t i = dest.layers-1; i > 0; i--) {
+		if (!MATRIX_FREED(dest.deltas[i-1])) {
+			matrix_free(&dest.deltas[i-1]);
+		}
+
+		// Direction of steepest descent (from weights gradient; see Section 7.1.1, p. 151)
+		// on the error function, w.r.t. the weights between the previous and next layer,
+		// is given by the inputs times the derivative until the next layer, because the
+		// derivation need not propagate further as current weights don't influence previous
+		// layers. E.g. $\frac{\partial}{\partial w}s(i \cdot w) = s'(i \cdot w) \cdot i$
+		// shows how the last step of the chain rule is to multiply by the constant $i$.
+		Matrix delta = matrix_multiply(to_units_derivative, dest.outputs[i-1]);
+		dest.deltas[i-1] = delta;
+
+		if (i > 1) {	// No need to propagate to the inputs, since they don't have any derivative
+
+			// Derivatives w.r.t. any of the previous layers weights don't depend on the next layer
+			// biases, since they have no effect on the gradient of the previous layer weights and
+			// they have no connection to the previous layers (see Section 7.3.3, p. 170)
+			Matrix without_bias = dest.weights[i-1];
+			without_bias.rows--;
+
+			// Propagate the derivative to the previous layer units (see Section 7.3.3, p. 171)
+			Matrix to_weights_derivative = matrix_multiply(without_bias, to_units_derivative);
+			matrix_free(&to_units_derivative);
+			to_units_derivative = matrix_multiply(dest.diags[i-2], to_weights_derivative);
+			matrix_free(&to_weights_derivative);
+		}
+	}
+
+	for (size_t i = 0; i < dest.layers-1; i++) {
+
+		// Scale and rotate gradient to steepest descent (see Section 7.2.1, p. 157)
+		matrix_transpose(&dest.deltas[i]);
+		matrix_multiply_scalar(dest.deltas[i], VNN_DTYPE_NEG(dest.rate));
+
+		// Update is performed *after* the backpropagation (see Section 7.3.2, p. 169)
+		Matrix updated_weights = matrix_add(dest.weights[i], dest.deltas[i]);
+		matrix_free(&dest.weights[i]);
+		dest.weights[i] = updated_weights;
+	}
+
+	matrix_free(&to_units_derivative);
+	matrix_free(&to_error_derivative);
 }
 
 VNNDEF void network_free(Network *dest) {
@@ -370,11 +442,15 @@ VNNDEF void network_free(Network *dest) {
 		if (!MATRIX_FREED(dest->outputs[i])) {
 			matrix_free(&dest->outputs[i]);
 		}
+		if (!MATRIX_FREED(dest->deltas[i-1])) {
+			matrix_free(&dest->deltas[i-1]);
+		}
 	}
 
 	VNN_FREE(dest->weights);
 	VNN_FREE(dest->diags);
 	VNN_FREE(dest->outputs);
+	VNN_FREE(dest->deltas);
 	memset(dest, 0, sizeof(Network));
 }
 
