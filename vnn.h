@@ -3,6 +3,7 @@
 
 // TODO: One might not have the standard library available
 #include <stdio.h>
+#include <stdbool.h>
 #include <assert.h>
 #include <string.h>
 
@@ -47,26 +48,30 @@
 typedef struct {
 	VNN_DTYPE *data;
 	size_t rows, cols;
+	bool transposed;
 } Matrix;
 
 VNNDEF Matrix matrix_empty(size_t rows, size_t cols);
 VNNDEF Matrix matrix_zeros(size_t rows, size_t cols);
 VNNDEF Matrix matrix_rand(size_t rows, size_t cols, VNN_DTYPE (*rand)());
-VNNDEF Matrix matrix_copy(Matrix src);
+VNNDEF Matrix matrix_clone(Matrix src);
 VNNDEF Matrix matrix_from(VNN_DTYPE *data, size_t rows, size_t cols);
+
 VNNDEF Matrix matrix_diagonalize(Matrix src);
-VNNDEF void matrix_apply(Matrix dest, VNN_DTYPE (*func)(VNN_DTYPE));
 VNNDEF Matrix matrix_resize(Matrix src, size_t rows, size_t cols, VNN_DTYPE extend);
-VNNDEF Matrix matrix_transpose(Matrix src);
-VNNDEF Matrix matrix_add(Matrix a, Matrix b);
-VNNDEF Matrix matrix_multiply(Matrix a, Matrix b);
+VNNDEF Matrix matrix_add(Matrix lhs, Matrix rhs);
+VNNDEF Matrix matrix_multiply(Matrix lhs, Matrix rhs);
+
 VNNDEF void matrix_add_scalar(Matrix dest, VNN_DTYPE scalar);
 VNNDEF void matrix_multiply_scalar(Matrix dest, VNN_DTYPE scalar);
+VNNDEF void matrix_apply(Matrix dest, VNN_DTYPE (*func)(VNN_DTYPE));
+VNNDEF void matrix_transpose(Matrix *dest);
 VNNDEF void matrix_negate(Matrix dest);
-VNNDEF void matrix_print(Matrix src);
 VNNDEF void matrix_free(Matrix *dest);
 
-#define MATRIX_AT(src, i, j) (src).data[(i)*(src).cols + (j)]
+VNNDEF void matrix_print(Matrix src);
+
+#define MATRIX_AT(src, i, j) (src).data[!(src).transposed ? (i)*(src).cols + (j) : (j)*(src).rows + (i)]
 #define MATRIX_FREED(src) ((src).data == NULL)
 
 typedef struct {
@@ -95,8 +100,8 @@ VNNDEF Matrix matrix_empty(size_t rows, size_t cols) {
 
 	return (Matrix) {
 		.data = VNN_MALLOC(rows*cols * sizeof(VNN_DTYPE)),
-		.rows = rows,
-		.cols = cols
+		.rows = rows, .cols = cols,
+		.transposed = false
 	};
 }
 
@@ -117,7 +122,7 @@ VNNDEF Matrix matrix_rand(size_t rows, size_t cols, VNN_DTYPE (*rand)()) {
 	return dest;
 }
 
-VNNDEF Matrix matrix_copy(Matrix src) {
+VNNDEF Matrix matrix_clone(Matrix src) {
 	Matrix dest = matrix_empty(src.rows, src.cols);
 	memcpy(dest.data, src.data, src.rows*src.cols * sizeof(VNN_DTYPE));
 	return dest;
@@ -125,29 +130,22 @@ VNNDEF Matrix matrix_copy(Matrix src) {
 
 VNNDEF Matrix matrix_from(VNN_DTYPE *data, size_t rows, size_t cols) {
 	assert(data != NULL);
-	Matrix dest = {.data = data, .rows = rows, .cols = cols};
-	return matrix_copy(dest);
+
+	return matrix_clone((Matrix) {
+		.data = data,
+		.rows = rows, .cols = cols,
+		.transposed = false
+	});
 }
 
 VNNDEF Matrix matrix_diagonalize(Matrix src) {
 	Matrix dest = matrix_zeros(src.rows*src.cols, src.rows*src.cols);
-	for (size_t i = 0; i < src.rows*src.cols; i++) {
-		MATRIX_AT(dest, i, i) = src.data[i];
+	for (size_t i = 0; i < src.rows; i++) {
+		for (size_t j = 0; j < src.cols; j++) {
+			MATRIX_AT(dest, i*src.cols+j, i*src.cols+j) = MATRIX_AT(src, i, j);
+		}
 	}
 	return dest;
-}
-
-VNNDEF void matrix_free(Matrix *dest) {
-	assert(!MATRIX_FREED(*dest));
-	VNN_FREE(dest->data);
-	memset(dest, 0, sizeof(Matrix));
-}
-
-VNNDEF void matrix_apply(Matrix dest, VNN_DTYPE (*func)(VNN_DTYPE)) {
-	assert(!MATRIX_FREED(dest) && func != NULL);
-	for (size_t i = 0; i < dest.rows*dest.cols; i++) {
-		dest.data[i] = func(dest.data[i]);
-	}
 }
 
 VNNDEF Matrix matrix_resize(Matrix src, size_t rows, size_t cols, VNN_DTYPE extend) {
@@ -162,35 +160,27 @@ VNNDEF Matrix matrix_resize(Matrix src, size_t rows, size_t cols, VNN_DTYPE exte
 	return dest;
 }
 
-VNNDEF Matrix matrix_transpose(Matrix src) {
-	Matrix dest = matrix_empty(src.cols, src.rows);
-	for (size_t i = 0; i < src.rows; i++) {
-		for (size_t j = 0; j < src.cols; j++) {
-			MATRIX_AT(dest, j, i) = MATRIX_AT(src, i, j);
+VNNDEF Matrix matrix_add(Matrix lhs, Matrix rhs) {
+	assert(lhs.rows == rhs.rows && lhs.cols == rhs.cols);
+
+	Matrix dest = matrix_empty(lhs.rows, lhs.cols);
+	for (size_t i = 0; i < lhs.rows; i++) {
+		for (size_t j = 0; j < lhs.cols; j++) {
+			MATRIX_AT(dest, i, j) = VNN_DTYPE_ADD(MATRIX_AT(lhs, i, j), MATRIX_AT(rhs, i, j));
 		}
 	}
 	return dest;
 }
 
-VNNDEF Matrix matrix_add(Matrix a, Matrix b) {
-	assert(a.rows == b.rows && a.cols == b.cols);
+VNNDEF Matrix matrix_multiply(Matrix lhs, Matrix rhs) {
+	assert(lhs.cols == rhs.rows);
 
-	Matrix dest = matrix_empty(a.rows, a.cols);
-	for (size_t i = 0; i < a.rows*a.cols; i++) {
-		dest.data[i] = VNN_DTYPE_ADD(a.data[i], b.data[i]);
-	}
-	return dest;
-}
-
-VNNDEF Matrix matrix_multiply(Matrix a, Matrix b) {
-	assert(a.cols == b.rows);
-
-	Matrix dest = matrix_empty(a.rows, b.cols);
-	for (size_t i = 0; i < a.rows; i++) {
-		for (size_t j = 0; j < b.cols; j++) {
+	Matrix dest = matrix_empty(lhs.rows, rhs.cols);
+	for (size_t i = 0; i < lhs.rows; i++) {
+		for (size_t j = 0; j < rhs.cols; j++) {
 			VNN_DTYPE sum = VNN_DTYPE_ZERO;
-			for (size_t k = 0; k < a.cols; k++) {
-				VNN_DTYPE mul = VNN_DTYPE_MUL(MATRIX_AT(a, i, k), MATRIX_AT(b, k, j));
+			for (size_t k = 0; k < lhs.cols; k++) {
+				VNN_DTYPE mul = VNN_DTYPE_MUL(MATRIX_AT(lhs, i, k), MATRIX_AT(rhs, k, j));
 				sum = VNN_DTYPE_ADD(sum, mul);
 			}
 			MATRIX_AT(dest, i, j) = sum;
@@ -213,11 +203,31 @@ VNNDEF void matrix_multiply_scalar(Matrix dest, VNN_DTYPE scalar) {
 	}
 }
 
+VNNDEF void matrix_apply(Matrix dest, VNN_DTYPE (*func)(VNN_DTYPE)) {
+	assert(!MATRIX_FREED(dest) && func != NULL);
+	for (size_t i = 0; i < dest.rows*dest.cols; i++) {
+		dest.data[i] = func(dest.data[i]);
+	}
+}
+
+VNNDEF void matrix_transpose(Matrix *dest) {
+	size_t rows = dest->rows;
+	dest->rows = dest->cols;
+	dest->cols = rows;
+	dest->transposed = !dest->transposed;	// Voodoo to avoid transposing elements in-place :I
+}
+
 VNNDEF void matrix_negate(Matrix dest) {
 	assert(!MATRIX_FREED(dest));
 	for (size_t i = 0; i < dest.rows*dest.cols; i++) {
 		dest.data[i] = VNN_DTYPE_NEG(dest.data[i]);
 	}
+}
+
+VNNDEF void matrix_free(Matrix *dest) {
+	assert(!MATRIX_FREED(*dest));
+	VNN_FREE(dest->data);
+	memset(dest, 0, sizeof(Matrix));
 }
 
 VNNDEF void matrix_print(Matrix src) {

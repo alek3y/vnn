@@ -5,6 +5,11 @@ int main(void) {
 	Matrix a = matrix_from((float[]) {1, 2, 3, 4, 5, 6}, 2, 3);
 	Matrix b = matrix_from((float[]) {7, 8, 9}, 3, 1);
 
+	matrix_transpose(&a);
+	matrix_print(a);
+	matrix_transpose(&a);
+
+	printf("\n");
 	matrix_print(a);
 	printf(".\n");
 	matrix_print(b);
@@ -31,10 +36,9 @@ int main(void) {
 	matrix_print(ab);
 
 	printf("\n");
-	Matrix abT = matrix_transpose(ab);
-	matrix_print(abT);
+	matrix_transpose(&ab);
+	matrix_print(ab);
 
-	matrix_free(&abT);
 	matrix_free(&c);
 	matrix_free(&ab);
 	matrix_free(&b);
