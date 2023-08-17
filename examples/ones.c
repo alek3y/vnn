@@ -56,7 +56,5 @@ int main(void) {
 		matrix_print(nn.weights[i]);
 	}
 
-	matrix_free(&target);
-	matrix_free(&input);
 	network_free(&nn);
 }

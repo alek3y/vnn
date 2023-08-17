@@ -39,8 +39,13 @@ int main(void) {
 	matrix_transpose(&ab);
 	matrix_print(ab);
 
+	printf("\n");
+	Matrix d = matrix_from((float *) "\x00\x00\x00\x00\x00\x00\x80\x40", 1, 2);	// {0, 4} in LE IEE754
+	d = matrix_clone(d);
+	matrix_add_scalar(d, 2);	// Would segfault without cloning `d`
+	matrix_print(d);
+
+	matrix_free(&d);
 	matrix_free(&c);
 	matrix_free(&ab);
-	matrix_free(&b);
-	matrix_free(&a);
 }

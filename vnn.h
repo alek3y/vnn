@@ -55,20 +55,18 @@ VNNDEF Matrix matrix_empty(size_t rows, size_t cols);
 VNNDEF Matrix matrix_zeros(size_t rows, size_t cols);
 VNNDEF Matrix matrix_rand(size_t rows, size_t cols, VNN_DTYPE (*rand)());
 VNNDEF Matrix matrix_clone(Matrix src);
-VNNDEF Matrix matrix_from(VNN_DTYPE *data, size_t rows, size_t cols);
-
-VNNDEF Matrix matrix_diagonalize(Matrix src);
 VNNDEF Matrix matrix_resize(Matrix src, size_t rows, size_t cols, VNN_DTYPE extend);
+VNNDEF Matrix matrix_diagonalize(Matrix src);
 VNNDEF Matrix matrix_add(Matrix lhs, Matrix rhs);
 VNNDEF Matrix matrix_multiply(Matrix lhs, Matrix rhs);
 
+VNNDEF Matrix matrix_from(VNN_DTYPE *data, size_t rows, size_t cols);	// NOTE: If `data` is read-only, the result must be `matrix_clone`d
 VNNDEF void matrix_add_scalar(Matrix dest, VNN_DTYPE scalar);
 VNNDEF void matrix_multiply_scalar(Matrix dest, VNN_DTYPE scalar);
 VNNDEF void matrix_apply(Matrix dest, VNN_DTYPE (*func)(VNN_DTYPE));
 VNNDEF void matrix_transpose(Matrix *dest);
 VNNDEF void matrix_negate(Matrix dest);
 VNNDEF void matrix_free(Matrix *dest);
-
 VNNDEF void matrix_print(Matrix src);
 
 #define MATRIX_AT(src, i, j) (src).data[!(src).transposed ? (i)*(src).cols + (j) : (j)*(src).rows + (i)]
@@ -132,11 +130,11 @@ VNNDEF Matrix matrix_clone(Matrix src) {
 VNNDEF Matrix matrix_from(VNN_DTYPE *data, size_t rows, size_t cols) {
 	assert(data != NULL);
 
-	return matrix_clone((Matrix) {
+	return (Matrix) {
 		.data = data,
 		.rows = rows, .cols = cols,
 		.transposed = false
-	});
+	};
 }
 
 VNNDEF Matrix matrix_diagonalize(Matrix src) {
