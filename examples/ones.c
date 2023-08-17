@@ -1,15 +1,13 @@
 #include <stdio.h>
-#include <stdlib.h>
-#include <time.h>
 #include <math.h>
 #include "vnn.h"
 
-float randw() {
-	return (float) rand() / RAND_MAX;
+float weights() {
+	return 1.0;
 }
 
 float activation(float excitation) {
-	return 1.0/(1.0 + exp(-excitation));	// See Section 7.1.1, p. 152
+	return 1.0/(1.0 + exp(-excitation));	// Sigmoid (see Section 7.1.1, p. 152)
 }
 
 float derivative(float excitation) {
@@ -17,18 +15,15 @@ float derivative(float excitation) {
 }
 
 int main(void) {
-	srand(time(NULL));
 	Network nn = network_new(
 		(size_t[]) {2, 3, 2}, 3, 1,
 		(VNN_DTYPE (*[])(VNN_DTYPE)) {activation, activation},
 		(VNN_DTYPE (*[])(VNN_DTYPE)) {derivative, derivative},
-		randw
+		weights
 	);
 
 	printf("Weights:\n");
 	for (size_t i = 0; i < nn.layers-1; i++) {
-		matrix_multiply_scalar(nn.weights[i], 0);
-		matrix_add_scalar(nn.weights[i], 1);
 		matrix_print(nn.weights[i]);
 	}
 
@@ -44,7 +39,7 @@ int main(void) {
 	printf("Output:\n");
 	matrix_print(output);
 
-	printf("Error: %g\n", network_error(nn, target));
+	printf("Error:\n%g\n", network_error(nn, target));
 
 	network_adjust(nn, target);
 	printf("Deltas:\n");
