@@ -2,7 +2,7 @@
 #include <math.h>
 #include "vnn.h"
 
-float weights() {
+float weights(void) {
 	return 1.0;
 }
 

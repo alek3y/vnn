@@ -53,7 +53,7 @@ typedef struct {
 
 VNNDEF Matrix matrix_empty(size_t rows, size_t cols);
 VNNDEF Matrix matrix_zeros(size_t rows, size_t cols);
-VNNDEF Matrix matrix_rand(size_t rows, size_t cols, VNN_DTYPE (*rand)());
+VNNDEF Matrix matrix_rand(size_t rows, size_t cols, VNN_DTYPE (*rand)(void));
 VNNDEF Matrix matrix_clone(Matrix src);
 VNNDEF Matrix matrix_resize(Matrix src, size_t rows, size_t cols, VNN_DTYPE extend);
 VNNDEF Matrix matrix_diagonalize(Matrix src);
@@ -85,7 +85,7 @@ VNNDEF Network network_new(
 	size_t *shape, size_t layers, VNN_DTYPE rate,
 	VNN_DTYPE (**activations)(VNN_DTYPE),
 	VNN_DTYPE (**derivatives)(VNN_DTYPE),
-	VNN_DTYPE (*rand)()
+	VNN_DTYPE (*rand)(void)
 );
 VNNDEF Matrix network_feed(Network dest, Matrix input);
 VNNDEF VNN_DTYPE network_error(Network src, Matrix target);
@@ -112,7 +112,7 @@ VNNDEF Matrix matrix_zeros(size_t rows, size_t cols) {
 	return dest;
 }
 
-VNNDEF Matrix matrix_rand(size_t rows, size_t cols, VNN_DTYPE (*rand)()) {
+VNNDEF Matrix matrix_rand(size_t rows, size_t cols, VNN_DTYPE (*rand)(void)) {
 	assert(rand != NULL);
 	Matrix dest = matrix_empty(rows, cols);
 	for (size_t i = 0; i < rows*cols; i++) {
@@ -260,7 +260,7 @@ VNNDEF Network network_new(
 	size_t *shape, size_t layers, VNN_DTYPE rate,
 	VNN_DTYPE (**activations)(VNN_DTYPE),
 	VNN_DTYPE (**derivatives)(VNN_DTYPE),
-	VNN_DTYPE (*rand)()
+	VNN_DTYPE (*rand)(void)
 ) {
 	assert(shape != NULL && shape[0] > 0 && layers >= 2);
 	assert(activations != NULL && derivatives != NULL && rand != NULL);

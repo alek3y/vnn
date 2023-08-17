@@ -4,8 +4,8 @@
 #include <math.h>
 #include "vnn.h"
 
-float weights() {
-	return (float) rand() / RAND_MAX;
+float weights(void) {
+	return (float) rand() / (float) RAND_MAX;
 }
 
 float activation(float excitation) {
