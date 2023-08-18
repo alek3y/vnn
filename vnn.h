@@ -18,26 +18,12 @@
 #ifndef VNN_DTYPE
 #define VNN_DTYPE float
 #endif
-#ifndef VNN_DTYPE_ONE
-#define VNN_DTYPE_ONE 1.0
+#ifndef VNN_DTYPE_TO_FLOAT
+#define VNN_DTYPE_TO_FLOAT(a) (a)
 #endif
-#ifndef VNN_DTYPE_ADD
-#define VNN_DTYPE_ADD(a, b) ((a) + (b))
+#ifndef VNN_DTYPE_FROM_FLOAT
+#define VNN_DTYPE_FROM_FLOAT(a) (a)
 #endif
-#ifndef VNN_DTYPE_MUL
-#define VNN_DTYPE_MUL(a, b) ((a) * (b))
-#endif
-#ifndef VNN_DTYPE_NEG
-#define VNN_DTYPE_NEG(a) (-(a))
-#endif
-
-// TODO: Train network with DIV/MUL+INV and see if weights differ (a*1/b loses precision?)
-#ifndef VNN_DTYPE_DIV
-#define VNN_DTYPE_DIV(a, b) ((a) / (b))
-#endif
-
-#define VNN_DTYPE_SUB(a, b) VNN_DTYPE_ADD((a), VNN_DTYPE_NEG(b))
-#define VNN_DTYPE_ZERO VNN_DTYPE_SUB(VNN_DTYPE_ONE, VNN_DTYPE_ONE)
 
 #ifdef VNN_EXTERN
 #define VNNDEF extern
@@ -53,17 +39,17 @@ typedef struct {
 
 VNNDEF Matrix matrix_empty(size_t rows, size_t cols);
 VNNDEF Matrix matrix_zeros(size_t rows, size_t cols);
-VNNDEF Matrix matrix_rand(size_t rows, size_t cols, VNN_DTYPE (*rand)(void));
+VNNDEF Matrix matrix_rand(size_t rows, size_t cols, float (*rand)(void));
 VNNDEF Matrix matrix_clone(Matrix src);
-VNNDEF Matrix matrix_resize(Matrix src, size_t rows, size_t cols, VNN_DTYPE extend);
+VNNDEF Matrix matrix_resize(Matrix src, size_t rows, size_t cols, float extend);
 VNNDEF Matrix matrix_diagonalize(Matrix src);
 VNNDEF Matrix matrix_add(Matrix lhs, Matrix rhs);
 VNNDEF Matrix matrix_multiply(Matrix lhs, Matrix rhs);
 
 VNNDEF Matrix matrix_from(VNN_DTYPE *data, size_t rows, size_t cols);	// NOTE: If `data` is read-only, the result must be `matrix_clone`d
-VNNDEF void matrix_add_scalar(Matrix dest, VNN_DTYPE scalar);
-VNNDEF void matrix_multiply_scalar(Matrix dest, VNN_DTYPE scalar);
-VNNDEF void matrix_apply(Matrix dest, VNN_DTYPE (*func)(VNN_DTYPE));
+VNNDEF void matrix_add_scalar(Matrix dest, float scalar);
+VNNDEF void matrix_multiply_scalar(Matrix dest, float scalar);
+VNNDEF void matrix_apply(Matrix dest, float (*func)(float));
 VNNDEF void matrix_transpose(Matrix *dest);
 VNNDEF void matrix_negate(Matrix dest);
 VNNDEF void matrix_free(Matrix *dest);
@@ -74,7 +60,7 @@ VNNDEF void matrix_print(Matrix src);
 
 typedef struct {
 	size_t layers;
-	VNN_DTYPE rate, (**s)(VNN_DTYPE), (**ds)(VNN_DTYPE);
+	float rate, (**s)(float), (**ds)(float);
 	Matrix *weights;
 
 	// Epoch relative data
@@ -82,13 +68,12 @@ typedef struct {
 } Network;
 
 VNNDEF Network network_new(
-	size_t *shape, size_t layers, VNN_DTYPE rate,
-	VNN_DTYPE (**activations)(VNN_DTYPE),
-	VNN_DTYPE (**derivatives)(VNN_DTYPE),
-	VNN_DTYPE (*rand)(void)
+	size_t *shape, size_t layers, float rate,
+	float (**activations)(float), float (**derivatives)(float),
+	float (*rand)(void)
 );
 VNNDEF Matrix network_feed(Network dest, Matrix input);
-VNNDEF VNN_DTYPE network_error(Network src, Matrix target);
+VNNDEF float network_error(Network src, Matrix target);
 VNNDEF void network_adjust(Network dest, Matrix target);
 VNNDEF void network_free(Network *dest);
 
@@ -107,16 +92,16 @@ VNNDEF Matrix matrix_empty(size_t rows, size_t cols) {
 VNNDEF Matrix matrix_zeros(size_t rows, size_t cols) {
 	Matrix dest = matrix_empty(rows, cols);
 	for (size_t i = 0; i < rows*cols; i++) {
-		dest.data[i] = VNN_DTYPE_ZERO;
+		dest.data[i] = VNN_DTYPE_FROM_FLOAT(0);
 	}
 	return dest;
 }
 
-VNNDEF Matrix matrix_rand(size_t rows, size_t cols, VNN_DTYPE (*rand)(void)) {
+VNNDEF Matrix matrix_rand(size_t rows, size_t cols, float (*rand)(void)) {
 	assert(rand != NULL);
 	Matrix dest = matrix_empty(rows, cols);
 	for (size_t i = 0; i < rows*cols; i++) {
-		dest.data[i] = rand();
+		dest.data[i] = VNN_DTYPE_FROM_FLOAT(rand());
 	}
 	return dest;
 }
@@ -147,14 +132,14 @@ VNNDEF Matrix matrix_diagonalize(Matrix src) {
 	return dest;
 }
 
-VNNDEF Matrix matrix_resize(Matrix src, size_t rows, size_t cols, VNN_DTYPE extend) {
+VNNDEF Matrix matrix_resize(Matrix src, size_t rows, size_t cols, float extend) {
 	assert(!MATRIX_FREED(src));
 
 	Matrix dest = matrix_empty(rows, cols);
 	size_t min = rows*cols < src.rows*src.cols ? rows*cols : src.rows*src.cols;
 	memcpy(dest.data, src.data, min * sizeof(VNN_DTYPE));
 	for (size_t i = min; i < rows*cols; i++) {
-		dest.data[i] = extend;
+		dest.data[i] = VNN_DTYPE_FROM_FLOAT(extend);
 	}
 	return dest;
 }
@@ -165,7 +150,10 @@ VNNDEF Matrix matrix_add(Matrix lhs, Matrix rhs) {
 	Matrix dest = matrix_empty(lhs.rows, lhs.cols);
 	for (size_t i = 0; i < lhs.rows; i++) {
 		for (size_t j = 0; j < lhs.cols; j++) {
-			MATRIX_AT(dest, i, j) = VNN_DTYPE_ADD(MATRIX_AT(lhs, i, j), MATRIX_AT(rhs, i, j));
+			MATRIX_AT(dest, i, j) = VNN_DTYPE_FROM_FLOAT(
+				VNN_DTYPE_TO_FLOAT(MATRIX_AT(lhs, i, j)) +
+				VNN_DTYPE_TO_FLOAT(MATRIX_AT(rhs, i, j))
+			);
 		}
 	}
 	return dest;
@@ -177,35 +165,37 @@ VNNDEF Matrix matrix_multiply(Matrix lhs, Matrix rhs) {
 	Matrix dest = matrix_empty(lhs.rows, rhs.cols);
 	for (size_t i = 0; i < lhs.rows; i++) {
 		for (size_t j = 0; j < rhs.cols; j++) {
-			VNN_DTYPE sum = VNN_DTYPE_ZERO;
+			float sum = 0;
 			for (size_t k = 0; k < lhs.cols; k++) {
-				VNN_DTYPE mul = VNN_DTYPE_MUL(MATRIX_AT(lhs, i, k), MATRIX_AT(rhs, k, j));
-				sum = VNN_DTYPE_ADD(sum, mul);
+				sum += (
+					VNN_DTYPE_TO_FLOAT(MATRIX_AT(lhs, i, k)) *
+					VNN_DTYPE_TO_FLOAT(MATRIX_AT(rhs, k, j))
+				);
 			}
-			MATRIX_AT(dest, i, j) = sum;
+			MATRIX_AT(dest, i, j) = VNN_DTYPE_FROM_FLOAT(sum);
 		}
 	}
 	return dest;
 }
 
-VNNDEF void matrix_add_scalar(Matrix dest, VNN_DTYPE scalar) {
+VNNDEF void matrix_add_scalar(Matrix dest, float scalar) {
 	assert(!MATRIX_FREED(dest));
 	for (size_t i = 0; i < dest.rows*dest.cols; i++) {
-		dest.data[i] = VNN_DTYPE_ADD(dest.data[i], scalar);
+		dest.data[i] = VNN_DTYPE_FROM_FLOAT(VNN_DTYPE_TO_FLOAT(dest.data[i]) + scalar);
 	}
 }
 
-VNNDEF void matrix_multiply_scalar(Matrix dest, VNN_DTYPE scalar) {
+VNNDEF void matrix_multiply_scalar(Matrix dest, float scalar) {
 	assert(!MATRIX_FREED(dest));
 	for (size_t i = 0; i < dest.rows*dest.cols; i++) {
-		dest.data[i] = VNN_DTYPE_MUL(dest.data[i], scalar);
+		dest.data[i] = VNN_DTYPE_FROM_FLOAT(VNN_DTYPE_TO_FLOAT(dest.data[i]) * scalar);
 	}
 }
 
-VNNDEF void matrix_apply(Matrix dest, VNN_DTYPE (*func)(VNN_DTYPE)) {
+VNNDEF void matrix_apply(Matrix dest, float (*func)(float)) {
 	assert(!MATRIX_FREED(dest) && func != NULL);
 	for (size_t i = 0; i < dest.rows*dest.cols; i++) {
-		dest.data[i] = func(dest.data[i]);
+		dest.data[i] = VNN_DTYPE_FROM_FLOAT(func(VNN_DTYPE_TO_FLOAT(dest.data[i])));
 	}
 }
 
@@ -219,7 +209,7 @@ VNNDEF void matrix_transpose(Matrix *dest) {
 VNNDEF void matrix_negate(Matrix dest) {
 	assert(!MATRIX_FREED(dest));
 	for (size_t i = 0; i < dest.rows*dest.cols; i++) {
-		dest.data[i] = VNN_DTYPE_NEG(dest.data[i]);
+		dest.data[i] = VNN_DTYPE_FROM_FLOAT(-VNN_DTYPE_TO_FLOAT(dest.data[i]));
 	}
 }
 
@@ -236,13 +226,13 @@ VNNDEF void matrix_print(Matrix src) {
 		for (size_t j = 0; j < src.cols; j++) {
 			int longest = 0;
 			for (size_t k = 0; k < src.rows; k++) {
-				int len = snprintf(NULL, 0, "%lg", MATRIX_AT(src, k, j));
+				int len = snprintf(NULL, 0, "%lg", VNN_DTYPE_TO_FLOAT(MATRIX_AT(src, k, j)));
 				if (len > longest) {
 					longest = len;
 				}
 			}
 
-			printf("%*lg", longest, MATRIX_AT(src, i, j));
+			printf("%*lg", longest, VNN_DTYPE_TO_FLOAT(MATRIX_AT(src, i, j)));
 			if (j < src.cols-1) {
 				printf(" ");
 			}
@@ -257,10 +247,9 @@ VNNDEF void matrix_print(Matrix src) {
 }
 
 VNNDEF Network network_new(
-	size_t *shape, size_t layers, VNN_DTYPE rate,
-	VNN_DTYPE (**activations)(VNN_DTYPE),
-	VNN_DTYPE (**derivatives)(VNN_DTYPE),
-	VNN_DTYPE (*rand)(void)
+	size_t *shape, size_t layers, float rate,
+	float (**activations)(float), float (**derivatives)(float),
+	float (*rand)(void)
 ) {
 	assert(shape != NULL && shape[0] > 0 && layers >= 2);
 	assert(activations != NULL && derivatives != NULL && rand != NULL);
@@ -296,7 +285,7 @@ VNNDEF Matrix network_feed(Network dest, Matrix input) {
 	if (!MATRIX_FREED(dest.outputs[0])) {
 		matrix_free(&dest.outputs[0]);
 	}
-	dest.outputs[0] = matrix_resize(input, input.rows, input.cols+1, VNN_DTYPE_ONE);	// Extend input with bias
+	dest.outputs[0] = matrix_resize(input, input.rows, input.cols+1, 1);	// Extend input with bias
 
 	for (size_t i = 1; i < dest.layers; i++) {
 		if (!MATRIX_FREED(dest.outputs[i])) {
@@ -312,9 +301,9 @@ VNNDEF Matrix network_feed(Network dest, Matrix input) {
 
 		// Unit is considered active when its activation, given by the function $s(x)$ where $x$ is the
 		// excitation, is greater than a given threshold, i.e. the bias (see Figure 3.5, p. 61)
-		Matrix activated = matrix_resize(excitations, excitations.rows, excitations.cols+1, VNN_DTYPE_ONE);
+		Matrix activated = matrix_resize(excitations, excitations.rows, excitations.cols+1, 1);
 		matrix_apply(activated, dest.s[i-1]);
-		MATRIX_AT(activated, 0, activated.cols-1) = VNN_DTYPE_ONE;	// NOTE: Technically the bias input doesn't have to be 1; TODO: Actually try to remove this line
+		MATRIX_AT(activated, 0, activated.cols-1) = VNN_DTYPE_FROM_FLOAT(1);	// NOTE: Technically the bias input doesn't have to be 1; TODO: Actually try to remove this line
 		dest.outputs[i] = activated;
 
 		// Diagonalized derivatives are stored during the feed forward step so that
@@ -331,7 +320,7 @@ VNNDEF Matrix network_feed(Network dest, Matrix input) {
 	return output;
 }
 
-VNNDEF VNN_DTYPE network_error(Network src, Matrix target) {
+VNNDEF float network_error(Network src, Matrix target) {
 	assert(!NETWORK_FREED(src) && !MATRIX_FREED(src.diags[0]));
 
 	Matrix output = src.outputs[src.layers-1];
@@ -343,15 +332,12 @@ VNNDEF VNN_DTYPE network_error(Network src, Matrix target) {
 	Matrix diff = matrix_add(output, target);
 	matrix_negate(target);	// Better not have `target` changing every epoch :)
 
-	VNN_DTYPE squares = VNN_DTYPE_ZERO;
+	float squares = 0;	// Stores the norm of `diff` squared
 	for (size_t i = 0; i < diff.rows*diff.cols; i++) {
-		squares = VNN_DTYPE_ADD(squares, VNN_DTYPE_MUL(diff.data[i], diff.data[i]));
+		squares += VNN_DTYPE_TO_FLOAT(diff.data[i]) * VNN_DTYPE_TO_FLOAT(diff.data[i]);
 	}
 
-	VNN_DTYPE error = VNN_DTYPE_DIV(
-		squares,	// Stores the norm of `diff` squared
-		VNN_DTYPE_ADD(VNN_DTYPE_ONE, VNN_DTYPE_ONE)	// Derivative cancels 2 out
-	);
+	float error = squares / 2.0;	// Derivative cancels 2 out
 
 	matrix_free(&diff);
 	return error;
@@ -412,7 +398,7 @@ VNNDEF void network_adjust(Network dest, Matrix target) {
 
 		// Scale and rotate gradient to steepest descent (see Section 7.2.1, p. 157)
 		matrix_transpose(&dest.deltas[i]);
-		matrix_multiply_scalar(dest.deltas[i], VNN_DTYPE_NEG(dest.rate));
+		matrix_multiply_scalar(dest.deltas[i], -dest.rate);
 
 		// Update is performed *after* the backpropagation (see Section 7.3.2, p. 169)
 		Matrix updated_weights = matrix_add(dest.weights[i], dest.deltas[i]);
