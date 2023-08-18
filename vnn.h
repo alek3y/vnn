@@ -101,7 +101,8 @@ VNNDEF Matrix matrix_rand(size_t rows, size_t cols, float (*rand)(void)) {
 	assert(rand != NULL);
 	Matrix dest = matrix_empty(rows, cols);
 	for (size_t i = 0; i < rows*cols; i++) {
-		dest.data[i] = VNN_DTYPE_FROM_FLOAT(rand());
+		float weight = rand();
+		dest.data[i] = VNN_DTYPE_FROM_FLOAT(weight);
 	}
 	return dest;
 }
@@ -195,7 +196,8 @@ VNNDEF void matrix_multiply_scalar(Matrix dest, float scalar) {
 VNNDEF void matrix_apply(Matrix dest, float (*func)(float)) {
 	assert(!MATRIX_FREED(dest) && func != NULL);
 	for (size_t i = 0; i < dest.rows*dest.cols; i++) {
-		dest.data[i] = VNN_DTYPE_FROM_FLOAT(func(VNN_DTYPE_TO_FLOAT(dest.data[i])));
+		float applied = func(VNN_DTYPE_TO_FLOAT(dest.data[i]));
+		dest.data[i] = VNN_DTYPE_FROM_FLOAT(applied);
 	}
 }
 
