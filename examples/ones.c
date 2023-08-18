@@ -17,8 +17,8 @@ float derivative(float excitation) {
 int main(void) {
 	Network nn = network_new(
 		(size_t[]) {2, 3, 2}, 3, 1,
-		(VNN_DTYPE (*[])(VNN_DTYPE)) {activation, activation},
-		(VNN_DTYPE (*[])(VNN_DTYPE)) {derivative, derivative},
+		(float (*[])(float)) {activation, activation},
+		(float (*[])(float)) {derivative, derivative},
 		weights
 	);
 

@@ -37,8 +37,8 @@ int main(void) {
 
 	Network nn = network_new(
 		(size_t[]) {2, 2, 1}, 3, 1,
-		(VNN_DTYPE (*[])(VNN_DTYPE)) {activation, activation},
-		(VNN_DTYPE (*[])(VNN_DTYPE)) {derivative, derivative},
+		(float (*[])(float)) {activation, activation},
+		(float (*[])(float)) {derivative, derivative},
 		weights
 	);
 
