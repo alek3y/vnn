@@ -110,6 +110,7 @@ VNNDEF Matrix matrix_rand(size_t rows, size_t cols, float (*rand)(void)) {
 VNNDEF Matrix matrix_clone(Matrix src) {
 	Matrix dest = matrix_empty(src.rows, src.cols);
 	memcpy(dest.data, src.data, src.rows*src.cols * sizeof(VNN_DTYPE));
+	dest.transposed = src.transposed;
 	return dest;
 }
 
