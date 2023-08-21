@@ -34,7 +34,7 @@
 typedef struct {
 	VNN_DTYPE *data;
 	size_t rows, cols;
-	bool transposed;
+	bool transposed, freeable;
 } Matrix;
 
 VNNDEF Matrix matrix_empty(size_t rows, size_t cols);
@@ -85,7 +85,7 @@ VNNDEF Matrix matrix_empty(size_t rows, size_t cols) {
 	return (Matrix) {
 		.data = VNN_MALLOC(rows*cols * sizeof(VNN_DTYPE)),
 		.rows = rows, .cols = cols,
-		.transposed = false
+		.transposed = false, .freeable = true
 	};
 }
 
@@ -119,7 +119,8 @@ VNNDEF Matrix matrix_from(VNN_DTYPE *data, size_t rows, size_t cols) {
 	return (Matrix) {
 		.data = data,
 		.rows = rows, .cols = cols,
-		.transposed = false
+		.transposed = false,
+		.freeable = false
 	};
 }
 
@@ -217,11 +218,15 @@ VNNDEF void matrix_negate(Matrix dest) {
 
 VNNDEF void matrix_free(Matrix *dest) {
 	assert(!MATRIX_FREED(*dest));
+	assert(dest->freeable);
+
 	VNN_FREE(dest->data);
 	memset(dest, 0, sizeof(Matrix));
 }
 
 VNNDEF void matrix_print(Matrix src) {
+	assert(!MATRIX_FREED(src));
+
 	printf("{");
 	for (size_t i = 0; i < src.rows; i++) {
 		printf("{");
@@ -316,9 +321,9 @@ VNNDEF Matrix network_feed(Network dest, Matrix input) {
 		matrix_free(&excitations);
 	}
 
-	// TODO: Mention return value is a peek and you don't need to free!
 	Matrix output = dest.outputs[dest.layers-1];
 	output.cols--;
+	output.freeable = false;
 	return output;
 }
 
